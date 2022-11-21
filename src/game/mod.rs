@@ -5,14 +5,14 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 use rand::Rng;
-use std::{io::stdout, process::exit};
+use std::{borrow::Borrow, io::stdout, process::exit};
 
-pub struct Game {
-    score: i32,
-    game_started: bool,
-    board: [[i32; 4]; 4],
+#[derive(PartialEq)]
+enum GameState {
+    Started,
+    Win,
+    Lose,
 }
-
 enum Direction {
     Up,
     Down,
@@ -20,11 +20,17 @@ enum Direction {
     Left,
 }
 
+pub struct Game {
+    score: i32,
+    game_state: GameState,
+    board: [[i32; 4]; 4],
+}
+
 impl Game {
     pub fn new() -> Self {
         Game {
             score: 0,
-            game_started: false,
+            game_state: GameState::Started,
             board: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
         }
     }
@@ -43,8 +49,9 @@ impl Game {
         if self.board[y][x] != 0 {
             self.generate_tile();
             return;
+        } else {
+            self.board[x][y] = 2;
         }
-        self.board[x][y] = 2;
     }
 
     fn print_board(&self) {
@@ -73,14 +80,14 @@ impl Game {
     }
 
     pub fn run(&mut self) {
-        //let mut stdout = stdout();
+        let mut stdout = stdout();
 
         self.init();
 
         // ===== Begin of gameloop =====
         loop {
             disable_raw_mode().unwrap();
-            //execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
             print!("Score: {}\r\n", self.score);
 
             self.print_board();
@@ -133,99 +140,124 @@ impl Game {
                 }
                 _ => (),
             }
+            self.game_state = self.check_board();
+
+            // End gameloop if the game state is not started
+            if self.game_state != GameState::Started {
+                break;
+            }
+            // Generate a game   
             self.generate_tile();
         }
         // ===== End of gameloop =====
+
+        // Gets triggered if the game state is win
+        if self.game_state == GameState::Win {
+            execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            print!("You won the game\r\n");
+            print!("You final score was: {}\r\n", self.score);
+        }
+
+        // Gets triggered if the game state is lose
+        if self.game_state == GameState::Lose {
+            execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            print!("You lose the game\r\n");
+            print!("You final score was: {}\r\n", self.score);
+        }
     }
 
     fn move_board(&mut self, direction: Direction) {
         match direction {
             Direction::Up => {
-                let mut x = 0;
-                while x != 3 {
-                    let mut y = 3;
-                    while y != 0 {
-                        let previous_index: usize = y - 1;
-                        print!("y,x: {},{}\r\n", previous_index, x as usize);
-                        if self.board[previous_index][x] != 0 {
-                            // move title up
-                            self.board[previous_index][x] = self.board[y][x];
-                            self.board[y][x] = 0;
-                        }
+                let y_range = (0..self.board.len()).rev();
+                for y in y_range.borrow().to_owned() {
+                    let x_range = 0..self.board[y].len();
+                    for x in x_range {
+                        if y != 0 {
+                            if self.board[y - 1][x] == 0 {
+                                self.board[y - 1][x] = self.board[y][x];
+                                self.board[y][x] = 0;
+                            }
 
-                        if self.board[previous_index][x] == self.board[y][x] {
-                            self.board[previous_index][x] = self.board[y][x];
-                            self.board[y][x] = 0;
-                            self.score += self.board[previous_index][x];
+                            if self.board[y - 1][x] == self.board[y][x] {
+                                self.board[y - 1][x] += self.board[y][x];
+                                self.board[y][x] = 0;
+                                self.score += self.board[y - 1][x];
+                            }
                         }
-                        y -= 1;
                     }
-                    x += 1;
                 }
             }
             Direction::Down => {
-                let mut y = 0;
-                while y != 3 {
-                    let mut x = 0;
-                    while x != 3 {
-                        if self.board[y + 1][x] == 0 && y != 3 {
-                            self.board[y + 1][x] = self.board[y][x];
-                            self.board[y][x] = 0;
-                        }
+                for y in 0..self.board.len() {
+                    for x in 0..self.board[y].len() {
+                        if y + 1 < 4 {
+                            if self.board[y + 1][x] == 0 {
+                                self.board[y + 1][x] = self.board[y][x];
+                                self.board[y][x] = 0;
+                            }
 
-                        if self.board[y + 1][x] == self.board[y][x] {
-                            self.board[y + 1][x] = self.board[y + 1][x] + self.board[y][x];
-                            self.board[y][x] = 0;
-                            self.score += self.board[y + 1][x];
+                            if self.board[y + 1][x] == self.board[y][x] {
+                                self.board[y + 1][x] += self.board[y][x];
+                                self.board[y][x] = 0;
+                                self.score += self.board[y + 1][x];
+                            }
                         }
-
-                        x += 1;
                     }
-                    y += 1;
                 }
             }
             Direction::Right => {
-                let mut y = 0;
-                while y != 3 {
-                    let mut x = 0;
-                    while x != 3 {
-                        if self.board[y][x + 1] == 0 && x != 3 {
-                            self.board[y][x + 1] = self.board[y][x];
-                            self.board[y][x] = 0;
-                        }
+                let y_range = 0..self.board.len();
+                for y in y_range.borrow().to_owned() {
+                    let x_range = 0..self.board[y].len();
+                    for x in x_range {
+                        if x + 1 < 4 {
+                            if self.board[y][x + 1] == 0 {
+                                self.board[y][x + 1] = self.board[y][x];
+                                self.board[y][x] = 0;
+                            }
 
-                        if self.board[y][x + 1] == self.board[y][x] {
-                            self.board[y][x + 1] = self.board[y][x + 1] + self.board[y][x];
-                            self.board[y][x] = 0;
-                            self.score += self.board[y][x + 1];
+                            if self.board[y][x + 1] == self.board[y][x] {
+                                self.board[y][x + 1] += self.board[y][x];
+                                self.board[y][x] = 0;
+                                self.score += self.board[y][x + 1];
+                            }
                         }
-
-                        x += 1;
                     }
-                    y += 1;
                 }
             }
             Direction::Left => {
-                let mut y = 0;
-                while y != 3 {
-                    let mut x = 3;
-                    while x >= 0 {
-                        if self.board[y][x - 1] == 0 && x != 0 {
-                            self.board[y][x - 1] = self.board[y][x];
-                            self.board[y][x] = 0;
-                        }
+                let y_range = 0..self.board.len();
+                for y in y_range.borrow().to_owned() {
+                    let x_range = (0..self.board[y].len()).rev();
+                    for x in x_range {
+                        if x != 0 {
+                            if self.board[y][x - 1] == 0 {
+                                self.board[y][x - 1] = self.board[y][x];
+                                self.board[y][x] = 0;
+                            }
 
-                        if self.board[y][x - 1] == self.board[y][x] {
-                            self.board[y][x - 1] = self.board[y][x - 1] + self.board[y][x];
-                            self.board[y][x] = 0;
-                            self.score += self.board[y][x - 1];
+                            if self.board[y][x - 1] == self.board[y][x] {
+                                self.board[y][x - 1] += self.board[y][x];
+                                self.board[y][x] = 0;
+                                self.score += self.board[y][x - 1];
+                            }
                         }
-                        println!("x {}", x);
-                        x -= 1;
                     }
-                    y += 1;
                 }
             }
         }
+    }
+
+    fn check_board(&self) -> GameState {
+        let game_state: GameState = GameState::Started;
+
+        for row in self.board {
+            for column in row {
+                if column == 2048 {return GameState::Win;}
+            }
+        }
+        // TODO: Implement search board algorithm
+        return game_state;
     }
 }
